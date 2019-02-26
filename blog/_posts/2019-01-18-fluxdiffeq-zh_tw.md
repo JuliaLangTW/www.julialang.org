@@ -469,8 +469,10 @@ m = Chain(
   softmax)
 ```
 
+而且，假如我們有個帶有合適大小的參數向量的 ODE ，我們可以像這樣把它代入我們的模型中：
+<!-- 
 and if we had an appropriate ODE which took a parameter vector of the right size,
-we can stick it right in there:
+we can stick it right in there: -->
 
 ```julia
 m = Chain(
@@ -481,8 +483,9 @@ m = Chain(
   softmax)
 ```
 
-or we can stick it into a convolutional neural network, where the previous
-layers define the initial condition for the ODE:
+抑或是，我們也可以把它代入到卷積神經網路中，使用前一層卷積層的輸出當作 ODE 的初始條件使用：
+<!-- or we can stick it into a convolutional neural network, where the previous
+layers define the initial condition for the ODE: -->
 
 ```julia
 m = Chain(
@@ -495,26 +498,31 @@ m = Chain(
   Dense(288, 10), softmax) |> gpu
 ```
 
-As long as you can write down the forward pass, we can take any parameterised,
-differentiable program and optimise it. The world is your oyster.
+只要你可以寫下向前傳播 (forward pass)，我們就可以處理任何參數化可微分的程序並優化它。一個新世界即為你的囊中之物啊。
+<!-- As long as you can write down the forward pass, we can take any parameterised,
+differentiable program and optimise it. The world is your oyster. -->
 
-## Why is a full ODE solver suite necessary for doing this well?
-
-Where we have combined an existing solver suite and deep learning library, the
+## 完整的 ODE 求解工具對於這個應用為什麼這麼必須呢?
+<!-- ## Why is a full ODE solver suite necessary for doing this well? -->
+前文中，我們把現有的求解工具和深度學習結合在一起。反觀另一個傑出的實作 [torchdiffeq](https://github.com/rtqichen/torchdiffeq) 採取了另一種實作方式，直接使用 pytorch 實作了許多求解演算法，包含一個適應性的 Runge Kutta 4-5 (`dopri5`) 和一個 Adams-Bashforth-Moulton 方法 (`adams`)。然而，其中的實作對於特定的模型來說，雖可算是非常有效率地，但無法完整整合所有可行的求解工具卻帶來了一些限制。
+<!-- Where we have combined an existing solver suite and deep learning library, the
 excellent [torchdiffeq](https://github.com/rtqichen/torchdiffeq) project takes
 an alternative approach, instead implementing solver methods directly in
 PyTorch, including an adaptive Runge Kutta 4-5 (`dopri5`) and an
 Adams-Bashforth-Moulton method (`adams`). However, while their approach is very
 effective for certain kinds of models, not having access to a full solver suite
-is limiting.
+is limiting. -->
 
+我們考慮以下這個例子：[ROBER
+ODE](https://www.radford.edu/~thompson/vodef90web/problems/demosnodislin/Single/DemoRobertson/demorobertson.pdf)。最被廣泛測試過 (且最佳化) 過的 Adams-Bashforth-Moulton 方法的實作是著名的 [C++ 套件 SUNDIALS 中的 CVODE 積分器](https://computation.llnl.gov/projects/sundials) (傳統的 LSODE 的一個分支)。讓我們用 DifferentialEquations.jl 去使用 CVODE 中的 Admas 方法來解這個 ODE 吧：
+<!-- 
 Consider the following example, the [ROBER
 ODE](https://www.radford.edu/~thompson/vodef90web/problems/demosnodislin/Single/DemoRobertson/demorobertson.pdf).
 The most well-tested (and optimized) implementation of an
 Adams-Bashforth-Moulton method is the [CVODE integrator in the C++ package
 SUNDIALS](https://computation.llnl.gov/projects/sundials) (a derivative of the
 classic LSODE). Let's use DifferentialEquations.jl to call CVODE with its Adams
-method and have it solve the ODE for us:
+method and have it solve the ODE for us: -->
 
 ```julia
 rober = @ode_def Rober begin
@@ -526,16 +534,20 @@ prob = ODEProblem(rober,[1.0;0.0;0.0],(0.0,1e11),(0.04,3e7,1e4))
 solve(prob,CVODE_Adams())
 ```
 
-(For those familiar with solving ODEs in MATLAB, this is similar to `ode113`)
+（熟悉使用 MATLAB 解 ODE 的讀者來說，這與 `ode113` 類似）
+<!-- (For those familiar with solving ODEs in MATLAB, this is similar to `ode113`) -->
 
-Both this and the `dopri` method from [Ernst Hairer's Fortran
+包含 [Ernst Hairer 的 Fortran 函式庫](https://www.unige.ch/~hairer/software.html)中的 `dopri` 在內，這兩種方法在求解這個問題上，都呈現停滯並無法得出結果。其癥結在於，這個 ODE 為[“剛性”](https://en.wikipedia.org/wiki/Stiff_equation)，而當求解演算法有著“較小的穩定區間”時，將無法對這類 ODE 求解（如讀者想就細節進一步了解的話，我推薦 Hairer 所著的 Solving Ordinary Differential Equations II 一書）。
+
+但另一方面，`KenCarp4()` 在求解這個問題上，只是轉瞬間的事：
+<!-- Both this and the `dopri` method from [Ernst Hairer's Fortran
 Suite](https://www.unige.ch/~hairer/software.html) stall and fail to solve the
 equation. This happens because the ODE is
 [stiff](https://en.wikipedia.org/wiki/Stiff_equation), and thus methods with
 "smaller stability regions" will not be able to solve it appropriately (for more
 details, I suggest reading Hairer's Solving Ordinary Differential Equations II).
 On the other hand `KenCarp4()` to this problem, the equation is solved in a
-blink of an eye:
+blink of an eye: -->
 
 ```julia
 sol = solve(prob,KenCarp4())
@@ -545,7 +557,10 @@ plot(sol,xscale=:log10,tspan=(0.1,1e11))
 
 ![ROBER Plot](https://user-images.githubusercontent.com/1814174/51388944-eb18e680-1af8-11e9-874f-09478759596e.png)
 
-This is just one example of subtlety in integration: Stabilizing explicit
+這不過是個積分法一些微小細節的範例：藉由 PI-適應性控制器和步距預測隱式解法等，都有著複雜微小的細節並需要長時間的開發與測試，才能變成有效率並穩定的求解器。而不同的問題也會需要不同的方法：如為了在許多[物理問題上得到夠好的解並避免偏移](https://scicomp.stackexchange.com/questions/29149/what-does-symplectic-mean-in-reference-to-numerical-integrators-and-does-scip/29154#29154)，[Symplectic 積分器]((http://docs.juliadiffeq.org/latest/solvers/dynamical_solve.html#Symplectic-Integrators-1))是必須的；另外像是 [IMEX 積分器](ttp://docs.juliadiffeq.org/latest/solvers/split_ode_solve.html#Implicit-Explicit-(IMEX)-ODE-1) 在求解偏微分方程上也是不可或缺的。由此可見建立一個具營運水準的求解器是有迫切需求但目前相對上稀缺的。
+
+與科學運算這個領域裡，另外建立一個為機器學習特化的解法器工具庫不同的是，在 Julia 裡兩者並無二致，也就是說你可以直接利用這些現存的解法器。
+<!-- This is just one example of subtlety in integration: Stabilizing explicit
 methods via PI-adaptive controllers, step prediction in implicit solvers, etc.
 are all intricate details that take a lot of time and testing to become
 efficient and robust. Different problems require different methods: [Symplectic
@@ -561,11 +576,13 @@ exist.
 
 Rather than building an ML-specific solver suite in parallel to one suitable for
 scientific computing, in Julia they are one and the same, meaning you can take
-advantage of all of these methods today.
+advantage of all of these methods today. -->
 
-## What kinds of differential equations are there?
+## 究竟有多少種不同的微分方程呢？
+<!-- ## What kinds of differential equations are there? -->
 
-Ordinary differential equations are only one kind of differential equation. There
+常微分方程不過只是其中一種微分方程而已。有許多不同額外的特徵是可以被加入到微分方程的結構式裡。舉例來說，兔子未來數量不是與現在的兔子數量有關，因為親輩兔子需要花一段時間懷孕，之後子輩兔子才會出生。因此，實際上兔子的出生率應與過去的兔子數量有關。在原來的範例的微分方程中的導數加入一個延遲項，使得這組方程形成所謂的時滯微分方程 (DDE)。由於 DifferentialEquations.jl 使用與[常微分方程相同的介面處理時滯微分方程](http://docs.juliadiffeq.org/latest/tutorials/dde_example.html)，它也可以被當成 Flux 中的一層神經網路。這裡是個範例：
+<!-- Ordinary differential equations are only one kind of differential equation. There
 are many additional features you can add to the structure of a differential equation.
 For example, the amount of bunnies in the future isn't dependent on the number
 of bunnies right now because it takes a non-zero amount of time for a parent
@@ -575,7 +592,7 @@ differential equation's derivative makes this equation known as a delay
 differential equation (DDE). Since
 [DifferentialEquations.jl handles DDEs](http://docs.juliadiffeq.org/latest/tutorials/dde_example.html)
 through the same interface as ODEs, it can be used as a layer in
-Flux as well. Here's an example:
+Flux as well. Here's an example: -->
 
 ```julia
 function delay_lotka_volterra(du,u,h,p,t)
@@ -596,17 +613,19 @@ loss_rd_dde() = sum(abs2,x-1 for x in predict_rd_dde())
 loss_rd_dde()
 ```
 
-The full code for this example, including generating an
+這個範例的完整程式碼，包含產生動畫在內，可以在 [model-zoo](https://github.com/FluxML/model-zoo/blob/da4156b4a9fb0d5907dcb6e21d0e78c72b6122e0/other/diffeq/dde.jl) 裡找到。
+<!-- The full code for this example, including generating an
 animation,
-[can be found in the model-zoo](https://github.com/FluxML/model-zoo/blob/da4156b4a9fb0d5907dcb6e21d0e78c72b6122e0/other/diffeq/dde.jl)
+[can be found in the model-zoo](https://github.com/FluxML/model-zoo/blob/da4156b4a9fb0d5907dcb6e21d0e78c72b6122e0/other/diffeq/dde.jl) -->
 
-Additionally we can add randomness to our differential equation to simulate
+除此之外，我們也可以在微分方程中加入隨機項去模擬隨機事件如何影響預期外的出生或死亡。這類的微分方程被稱為隨機微分方程 (SDE)。由於 [DifferentialEquations.jl 同樣也可以處理隨機微分方程](http://docs.juliadiffeq.org/latest/tutorials/sde_example.html) (也是目前唯一一個包含剛性與非剛性隨機微分方程積分器的函式庫)，也同樣可以用類似方法引入 Flux 作為神經網路的一層。以下是使用 SDE 作為神經網路一層的範例：
+<!-- Additionally we can add randomness to our differential equation to simulate
 how random events can cause extra births or more deaths than expected. This
 kind of equation is known as a stochastic differential equation (SDE).
 Since [DifferentialEquations.jl handles SDEs](http://docs.juliadiffeq.org/latest/tutorials/sde_example.html)
 (and is currently the only library with adaptive stiff and non-stiff SDE integrators),
 these can be handled as a layer in Flux similarly. Here's a neural net layer
-with an SDE:
+with an SDE: -->
 
 ```julia
 function lotka_volterra_noise(du,u,p,t)
@@ -624,8 +643,9 @@ loss_fd_sde() = sum(abs2,x-1 for x in predict_fd_sde())
 loss_fd_sde()
 ```
 
-And we can train the neural net to watch it in action and find parameters to make
-the amount of bunnies close to constant:
+接著我們可以訓練這個神經網路去找出一組參數使得兔子數量成一個定值並觀察中間變化的過程：
+<!-- And we can train the neural net to watch it in action and find parameters to make
+the amount of bunnies close to constant: -->
 
 ```julia
 data = Iterators.repeated((), 100)
@@ -635,7 +655,7 @@ cb = function ()
   display(plot(solve(remake(prob,p=Flux.data(p)),SOSRI(),saveat=0.1),ylim=(0,6)))
 end
 
-# Display the ODE with the current parameter values.
+# 畫出當下參數的 ODE
 cb()
 
 Flux.train!(loss_fd_sde, params, data, opt, cb = cb)
@@ -645,12 +665,13 @@ Flux.train!(loss_fd_sde, params, data, opt, cb = cb)
 
 [This code can be found in the model-zoo](https://github.com/FluxML/model-zoo/blob/da4156b4a9fb0d5907dcb6e21d0e78c72b6122e0/other/diffeq/sde.jl)
 
-And we can keep going. There are differential equations
+我們可以繼續下去。譬如也些微分方程式是呈[分片段常數函數 (piecewise constant)](http://docs.juliadiffeq.org/latest/tutorials/discrete_stochastic_example.html)被使用在生物模擬上，抑或是被應用於財務模型中的[跳耀擴散方程式 (jump diffusion)](http://docs.juliadiffeq.org/latest/tutorials/jump_diffusion.html)。而上述這些方程式解法器，都可以透過 FluxDiffEq.jl 很好地整合進 Flux 神經網路的架構裡，且 FluxDiffEq.jl 大約只使用了約 100 行左右的程式碼便完成了這些實作。
+<!-- And we can keep going. There are differential equations
 [which are piecewise constant](http://docs.juliadiffeq.org/latest/tutorials/discrete_stochastic_example.html)
 used in biological simulations, or
 [jump diffusion equations from financial models](http://docs.juliadiffeq.org/latest/tutorials/jump_diffusion.html),
 and the solvers map right over to the Flux neural network frame work through FluxDiffEq.jl
-FluxDiffEq.jl uses only around ~100 lines of code to pull this all off.
+FluxDiffEq.jl uses only around ~100 lines of code to pull this all off. -->
 
 ## Implementing the Neural ODE layer in Julia
 
