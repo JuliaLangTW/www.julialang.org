@@ -805,15 +805,29 @@ As you could probably guess by now, the DiffEqFlux.jl has all kinds of
 extra related goodies like Neural SDEs (`neural_msde`) for you to explore in your
 applications.
 
-## The core technical challenge: backpropagation through differential equation solvers
+## 技術挑戰的核心：微分方程求解器的反向傳遞
+<!-- ## The core technical challenge: backpropagation through differential equation solvers -->
 
-Let's end by explaining the technical issue that needed a solution to make this
+我們最後總結一下，一個技術問題的解法要讓這些變得可行。
+為了要能夠計算損失函數對於網路參數的梯度，任何神經網路架構的核心就是可以去反向傳遞導數。
+因此如果我們將一個微分方程求解器作為一個網路層，那麼我們需要反向傳遞通過它。
+
+<!-- Let's end by explaining the technical issue that needed a solution to make this
 all possible. The core to any neural network framework is the ability to
 backpropagate derivatives in order to calculate the gradient of the loss function
 with respect to the network's parameters. Thus if we stick an ODE solver as a
-layer in a neural network, we need to backpropagate through it.
+layer in a neural network, we need to backpropagate through it. -->
 
-There are multiple ways to do this. The most common is known as (adjoint) sensitivity
+有很多方法可以實作它。最常見的叫作（伴隨）敏感性分析（adjoint sensitivity analysis）。
+敏感性分析定義了一個新的微分方程，它的解會給出損失函數對於參數的梯度，
+並且解這個二級微分方程。這個方法在 Neural Ordinary Differential Equations 論文中被討論到，
+但，事實上，我們將時間倒回到更早之前，有流行的微分方程求解器框架，像是 [FATODE](http://people.cs.vt.edu/~asandu/Software/FATODE/index.html)、
+[CASADI](https://web.casadi.org/)，以及
+[CVODES](https://computation.llnl.gov/projects/sundials/cvodes)
+已經使用了這個伴隨法一段時間了（CVODES 甚至從 2005 年就問世了！）。
+[DifferentialEquations.jl 也提供了敏感性分析的實作](http://docs.juliadiffeq.org/latest/analysis/sensitivity.html)。
+
+<!-- There are multiple ways to do this. The most common is known as (adjoint) sensitivity
 analysis. Sensitivity analysis defines a new ODE whose solution gives the
 gradients to the cost function w.r.t. the parameters, and solves this secondary
 ODE. This is the method discussed in the neural ordinary differential equations
@@ -822,9 +836,17 @@ like [FATODE](http://people.cs.vt.edu/~asandu/Software/FATODE/index.html),
 [CASADI](https://web.casadi.org/), and
 [CVODES](https://computation.llnl.gov/projects/sundials/cvodes)
 have been available with this adjoint method for a long time (CVODES came out
-in 2005!). [DifferentialEquations.jl has sensitivity analysis implemented too](http://docs.juliadiffeq.org/latest/analysis/sensitivity.html)
+in 2005!). [DifferentialEquations.jl has sensitivity analysis implemented too](http://docs.juliadiffeq.org/latest/analysis/sensitivity.html) -->
 
-The efficiency problem with adjoint sensitivity analysis methods is that they require
+在伴隨敏感性分析的有效性問題上，它們需要微分方程的多個解。
+如預期地，這非常花時間。像 CVODES 的方法，利用了檢查點機制，藉由儲存接近的時間點來推論解，
+降低了記憶體使用成本。在神經微分方程的方法中，嘗試要以反向的伴隨法來替代對前向方法的依賴。
+而這邊的問題則是，這個方法隱含地假設了微分方程積分器是[可逆的](https://www.physics.drexel.edu/~valliere/PHYS305/Diff_Eq_Integrators/time_reversal/)。
+令人失望的是，不存在可逆的一階微分方程適應型積分器，所以沒有這樣的微分方程求解器可以用。
+舉例而言，這邊有個快速的驗證，如果像這篇論文在這樣的微分方程上使用反向解法 Adams，
+在最後一個點上就會產生 >1700% 的誤差，即便設定了 1e-12 的容忍度：
+
+<!-- The efficiency problem with adjoint sensitivity analysis methods is that they require
 multiple forward solutions of the ODE. As you would expect, this is very costly.
 Methods like the checkpointing scheme in CVODES reduce the cost by saving closer
 time points to make the forward solutions shorter at the cost of using more
@@ -836,7 +858,7 @@ method implicitly makes the assumption that the ODE integrator is
 Sadly, there are no reversible adaptive integrators for first-order ODEs, so
 with no ODE solver method is this guaranteed to work. For example, here's a quick
 equation where a backwards solution to the ODE using the Adams method from the
-paper has >1700% error in its final point, even with solver tolerances of 1e-12:
+paper has >1700% error in its final point, even with solver tolerances of 1e-12: -->
 
 ```julia
 using Sundials, DiffEqBase
@@ -854,18 +876,38 @@ sol = solve(prob,CVODE_Adams(),reltol=1e-12,abstol=1e-12)
 @show sol[end]-u0 #[-17.5445, -14.7706, 39.7985]
 ```
 
-(Here we once again use the CVODE C++ solvers from SUNDIALS since they are a close
-match to the SciPy integrators used in the neural ODE paper.)
+（這邊我們再一次地使用了 SUNDIALS 的 CVODE C++ 求解器，
+由於他們最接近於神經微分方程論文中用的 SciPy 的積分器。）
 
-This inaccuracy is the reason why the method from the neural ODE paper is not
+<!-- (Here we once again use the CVODE C++ solvers from SUNDIALS since they are a close
+match to the SciPy integrators used in the neural ODE paper.) -->
+
+如此不精確的結果說明了為什麼神經微分方程論文中的方法並不是使用軟體套件中的實作，
+這再一次地凸顯了這些小細節。而並非所有微分方程都在這個問題上有如此巨大的誤差。
+對於那些並不會造成問題的微分方程來說，這會是最有效率的伴隨敏感性分析方法。
+這個方法只能用於常微分方程上。不只是這樣，它甚至不能被用於所有常微分方程。
+舉例來說，常微分方程具有非連續性的（[事件](http://docs.juliadiffeq.org/latest/features/callback_functions.html)）並沒有被求導數的假設考慮到。
+目前為止，我們再一次得到了相同的總結，單一方法是不夠的。
+
+<!-- This inaccuracy is the reason why the method from the neural ODE paper is not
 implemented in software suites, but it once again highlights a detail. Not
 all ODEs will have a large error due to this issue. And for ODEs where it's not
 a problem, this will be the most efficient way to do adjoint sensitivity
 analysis. And this method only applies to ODEs. Not only that, it doesn't even
 apply to all ODEs. For example, ODEs with discontinuities ([events](http://docs.juliadiffeq.org/latest/features/callback_functions.html)) are excluded by the assumptions of the derivation.
-Thus once again we arrive at the conclusion that one method is not enough.
+Thus once again we arrive at the conclusion that one method is not enough. -->
 
-In DifferentialEquations.jl have implemented many different methods for
+DifferentialEquations.jl 套件已經實作了非常多不同的方法來計算微分方程的參數微分。
+我們已經有[最近的 preprint 文章](https://arxiv.org/abs/1812.01892)更詳細地描述了這些結果。
+我們發現到一件事，直接使用自動微分會是一個最有效而有彈性的方式。
+Julia 的 ForwardDiff.jl、Flux，以及 ReverseDiff.jl 套件可以直接將自動微分
+用在原生的 Julia 微分方程求解器上，而即使增加新功能也可以提升效率。
+我們也證實前向模式自動微分在微分方程少於 100 個參數是最快的，
+而對於多於 100 個參數伴隨敏感性分析是最有效率的。
+即便如此，我們有好的理由相信[次世代反向模式 source-to-source 自動微分，Zygote.jl](https://julialang.org/blog/2018/12/ml-language-compiler)，
+將會是在大量參數下比所有伴隨敏感性分析更為有效率的方式。
+
+<!-- In DifferentialEquations.jl have implemented many different methods for
 computing the derivatives of differential equations with respect to parameters.
 We have a [recent preprint](https://arxiv.org/abs/1812.01892) detailing
 some of these results. One of the things we have found is that direct use of
@@ -880,28 +922,51 @@ sensitivity analysis is the most efficient. Even
 then, we have good reason to believe that
 [the next generation reverse-mode automatic differentiation via source-to-source AD, Zygote.jl](https://julialang.org/blog/2018/12/ml-language-compiler),
 will be more efficient than all of the adjoint sensitivity implementations for
-large numbers of parameters.
+large numbers of parameters. -->
 
-Altogether, being able to switch between different gradient methods without changing
+總的來說，為了達成擴充性、最佳的、可維護的微分方程及神經網路整合框架，
+可以切換不同的梯度方法，而不會改變其餘的程式碼，是一件極其重要的事。
+而這正是 FluxDiffEq.jl 要帶給使用者的。當中有三個相似的 API 函式：
+
+<!-- Altogether, being able to switch between different gradient methods without changing
 the rest of your code is crucial for having a scalable, optimized, and
 maintainable framework for integrating differential equations and neural networks.
 And this is precisely what FluxDiffEq.jl gives the user direct access to. There
-are three functions with a similar API:
+are three functions with a similar API: -->
 
-- `diffeq_rd` uses Flux's reverse-mode AD through the differential equation
+- `diffeq_rd` 使用了 Flux 的自動微分反向模式求解。
+- `diffeq_fd` 使用了 ForwardDiff.jl 的自動微分前向模式求解。
+- `diffeq_adjoint` 使用了伴隨敏感性分析來「反向傳遞」求解。
+
+<!-- - `diffeq_rd` uses Flux's reverse-mode AD through the differential equation
   solver.
 - `diffeq_fd` uses ForwardDiff.jl's forward-mode AD through the differential
   equation solver.
-- `diffeq_adjoint` uses adjoint sensitivity analysis to "backprop the ODE solver"
+- `diffeq_adjoint` uses adjoint sensitivity analysis to "backprop the ODE solver" -->
 
-Therefore, to switch from a reverse-mode AD layer to a forward-mode
+然而，要把自動微分的反向模式層切換到前向模式層，只需要改變一個字元即可。
+由於基於 Julia 的自動微分可以作用在 Julia 程式碼上，
+原生的 Julia 微分方程求解器可以直接從這邊受到助益。
+
+<!-- Therefore, to switch from a reverse-mode AD layer to a forward-mode
 AD layer, one simply has to change a single character. Since Julia-based automatic
 differentiation works on Julia code, the native Julia differential equation
-solvers will continue to benefit from advances in this field.
+solvers will continue to benefit from advances in this field. -->
 
-## Conclusion
+## 結論
 
-Machine learning and differential equations are destined to come together due to
+<!-- ## Conclusion -->
+
+機器學習與微分方程注定是要在一起的，因為他們是在描述非線性世界的互補方法。
+在 Julia 的生態中，我們以一種嶄新而獨立的套件整合了微分方程以及深度學習套件，
+讓這兩個領域可以直接被放在一起使用。
+我們是第一個了解到由軟體開啟這樣的可能性。我們希望未來的部落格文章可以混合兩個領域，
+有更深入的酷炫應用，像是整合我們即將上線的計量藥物（pharmacometric）模擬引擎 [PuMaS.jl](https://doi.org/10.1007/s10928-018-9606-9)
+到深度學習框架中。
+有了全方位的微分方程求解器支援，提供了 ODEs、SDEs、DAEs、DDEs、PDEs、離散隨機方程，
+以及更多更多，我們期待你們將會用 Julia 建構怎樣的次世代的神經網路。
+
+<!-- Machine learning and differential equations are destined to come together due to
 their complementary ways of describing a nonlinear world. In the Julia ecosystem
 we have merged the differential equation and deep learning packages in such a
 way that new independent developments in the two domains can directly be used together.
@@ -911,7 +976,8 @@ applications which mix the two disciplines, such as embedding our coming
 pharmacometric simulation engine [PuMaS.jl](https://doi.org/10.1007/s10928-018-9606-9)
 into the deep learning framework. With access to the full range of solvers for ODEs,
 SDEs, DAEs, DDEs, PDEs, discrete stochastic equations, and more, we are
-interested to see what kinds of next generation neural networks you will build with Julia.
+interested to see what kinds of next generation neural networks you will build with Julia. -->
 
-Note: a citable version of this post will be published on
-Arxiv soon.
+備註：可引用版本將在 Arxiv 上公開。
+
+<!-- Note: a citable version of this post will be published on Arxiv soon. -->
