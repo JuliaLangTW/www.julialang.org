@@ -805,7 +805,7 @@ As you could probably guess by now, the DiffEqFlux.jl has all kinds of
 extra related goodies like Neural SDEs (`neural_msde`) for you to explore in your
 applications.
 
-## 技術挑戰的核心：微分方程求解器的反向傳遞
+## 核心的技術問題：微分方程求解器的反向傳遞
 <!-- ## The core technical challenge: backpropagation through differential equation solvers -->
 
 我們最後總結一下，一個技術問題的解法要讓這些變得可行。
