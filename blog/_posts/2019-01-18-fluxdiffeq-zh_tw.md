@@ -820,11 +820,11 @@ layer in a neural network, we need to backpropagate through it. -->
 
 有很多方法可以實作它。最常見的叫作（伴隨）敏感性分析（adjoint sensitivity analysis）。
 敏感性分析定義了一個新的微分方程，它的解會給出損失函數對於參數的梯度，
-並且解這個二級微分方程。這個方法在 Neural Ordinary Differential Equations 論文中被討論到，
-但，事實上，我們將時間倒回到更早之前，有流行的微分方程求解器框架，像是 [FATODE](http://people.cs.vt.edu/~asandu/Software/FATODE/index.html)、
-[CASADI](https://web.casadi.org/)，以及
+並且解這個衍生的微分方程。這個方法在 Neural Ordinary Differential Equations 論文中有被討論到，
+但事實上，我們將時間倒回到更早之前，當時流行的微分方程求解器框架，像是 [FATODE](http://people.cs.vt.edu/~asandu/Software/FATODE/index.html)、
+[CASADI](https://web.casadi.org/) 以及
 [CVODES](https://computation.llnl.gov/projects/sundials/cvodes)
-已經使用了這個伴隨法一段時間了（CVODES 甚至從 2005 年就問世了！）。
+已經使用伴隨法一段時間了（CVODES 甚至從 2005 年就問世了！）。
 [DifferentialEquations.jl 也提供了敏感性分析的實作](http://docs.juliadiffeq.org/latest/analysis/sensitivity.html)。
 
 <!-- There are multiple ways to do this. The most common is known as (adjoint) sensitivity
@@ -838,13 +838,13 @@ like [FATODE](http://people.cs.vt.edu/~asandu/Software/FATODE/index.html),
 have been available with this adjoint method for a long time (CVODES came out
 in 2005!). [DifferentialEquations.jl has sensitivity analysis implemented too](http://docs.juliadiffeq.org/latest/analysis/sensitivity.html) -->
 
-在伴隨敏感性分析的有效性問題上，它們需要微分方程的多個解。
-如預期地，這非常花時間。像 CVODES 的方法，利用了檢查點機制，藉由儲存接近的時間點來推論解，
-降低了記憶體使用成本。在神經微分方程的方法中，嘗試要以反向的伴隨法來替代對前向方法的依賴。
-而這邊的問題則是，這個方法隱含地假設了微分方程積分器是[可逆的](https://www.physics.drexel.edu/~valliere/PHYS305/Diff_Eq_Integrators/time_reversal/)。
-令人失望的是，不存在可逆的一階微分方程適應型積分器，所以沒有這樣的微分方程求解器可以用。
-舉例而言，這邊有個快速的驗證，如果像這篇論文在這樣的微分方程上使用反向解法 Adams，
-在最後一個點上就會產生 >1700% 的誤差，即便設定了 1e-12 的容忍度：
+在伴隨敏感性分析的效率性問題上，它們需要微分方程的多個解。
+可預見的，這會非常花時間。像 CVODES 的方法，利用了檢查點機制，藉由儲存接近的時間點來推論解，
+伴隨著記憶體用量的增加，得以加速。在 Neural ODE 一文中所使用的方法，則嘗試要以反向的伴隨法來替代對前向方法的依賴。
+然而衍生的問題則是，這個方法隱含地假設了微分方程積分器必須是[可逆的](https://www.physics.drexel.edu/~valliere/PHYS305/Diff_Eq_Integrators/time_reversal/)。
+令人失望的是，目前對於一階微分方程尚不存在可逆的適應型積分器，所以沒有這樣的微分方程求解器可以用。
+舉例而言，作為一個快速的驗證，在論文中針對這樣的微分方程上使用反向解法 Adams，
+即便設定了 1e-12 的容忍度，還是在最後一個點上就會產生 >1700% 的誤差：
 
 <!-- The efficiency problem with adjoint sensitivity analysis methods is that they require
 multiple forward solutions of the ODE. As you would expect, this is very costly.
@@ -884,9 +884,9 @@ match to the SciPy integrators used in the neural ODE paper.) -->
 
 如此不精確的結果說明了為什麼神經微分方程論文中的方法並不是使用軟體套件中的實作，
 這再一次地凸顯了這些小細節。而並非所有微分方程都在這個問題上有如此巨大的誤差。
-對於那些並不會造成問題的微分方程來說，這會是最有效率的伴隨敏感性分析方法。
-這個方法只能用於常微分方程上。不只是這樣，它甚至不能被用於所有常微分方程。
-舉例來說，常微分方程具有非連續性的（[事件](http://docs.juliadiffeq.org/latest/features/callback_functions.html)）並沒有被求導數的假設考慮到。
+對於那些並不會造成問題的微分方程來說，伴隨敏感性分析方法會是最有效率的。
+除此之外，這個方法只能用於常微分方程上。不只是這樣，它甚至不能被用於所有常微分方程。
+舉例來說，具有非連續性（[事件](http://docs.juliadiffeq.org/latest/features/callback_functions.html)）的常微分方程並不符合可微分這個假設。
 目前為止，我們再一次得到了相同的總結，單一方法是不夠的。
 
 <!-- This inaccuracy is the reason why the method from the neural ODE paper is not
@@ -898,7 +898,7 @@ apply to all ODEs. For example, ODEs with discontinuities ([events](http://docs.
 Thus once again we arrive at the conclusion that one method is not enough. -->
 
 DifferentialEquations.jl 套件已經實作了非常多不同的方法來計算微分方程的參數微分。
-我們已經有[最近的 preprint 文章](https://arxiv.org/abs/1812.01892)更詳細地描述了這些結果。
+在我們[最近的 preprint 文章](https://arxiv.org/abs/1812.01892)中，更詳細地描述了這些結果。
 我們發現到一件事，直接使用自動微分會是一個最有效而有彈性的方式。
 Julia 的 ForwardDiff.jl、Flux，以及 ReverseDiff.jl 套件可以直接將自動微分
 用在原生的 Julia 微分方程求解器上，而即使增加新功能也可以提升效率。
@@ -959,12 +959,11 @@ solvers will continue to benefit from advances in this field. -->
 
 機器學習與微分方程注定是要在一起的，因為他們是在描述非線性世界的互補方法。
 在 Julia 的生態中，我們以一種嶄新而獨立的套件整合了微分方程以及深度學習套件，
-讓這兩個領域可以直接被放在一起使用。
-我們是第一個了解到由軟體開啟這樣的可能性。我們希望未來的部落格文章可以混合兩個領域，
-有更深入的酷炫應用，像是整合我們即將上線的計量藥物（pharmacometric）模擬引擎 [PuMaS.jl](https://doi.org/10.1007/s10928-018-9606-9)
-到深度學習框架中。
-有了全方位的微分方程求解器支援，提供了 ODEs、SDEs、DAEs、DDEs、PDEs、離散隨機方程，
-以及更多更多，我們期待你們將會用 Julia 建構怎樣的次世代的神經網路。
+讓這兩個領域可以直接結合在一起。
+由軟體開啟這樣的可能性，目前僅僅是個開端。我們希望未來的部落格文章可以混合兩個領域，
+在深度學習框架中能有更深入而酷炫的應用，像是整合我們即將上線的計量藥物（pharmacometric）模擬引擎 [PuMaS.jl](https://doi.org/10.1007/s10928-018-9606-9)。
+在全方位的微分方程求解器支援 ODEs、SDEs、DAEs、DDEs、PDEs、離散隨機方程等多樣微分方程式下，
+我們期待你們將會用 Julia 建構怎樣的次世代的神經網路。
 
 <!-- Machine learning and differential equations are destined to come together due to
 their complementary ways of describing a nonlinear world. In the Julia ecosystem
