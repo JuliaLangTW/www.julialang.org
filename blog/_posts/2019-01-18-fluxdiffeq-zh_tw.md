@@ -808,7 +808,7 @@ applications.
 ## 核心的技術問題：微分方程求解器的反向傳遞
 <!-- ## The core technical challenge: backpropagation through differential equation solvers -->
 
-我們最後總結一下，一個技術問題的解法要讓這些變得可行。
+最後，我們來解釋一下為了讓上述理論可行，必須解決的技術問題。
 為了要能夠計算損失函數對於網路參數的梯度，任何神經網路架構的核心就是可以去反向傳遞導數。
 因此如果我們將一個微分方程求解器作為一個網路層，那麼我們需要反向傳遞通過它。
 
