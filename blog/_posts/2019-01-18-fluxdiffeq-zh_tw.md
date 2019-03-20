@@ -877,7 +877,7 @@ sol = solve(prob,CVODE_Adams(),reltol=1e-12,abstol=1e-12)
 ```
 
 （這邊我們再一次地使用了 SUNDIALS 的 CVODE C++ 求解器，
-由於他們最接近於神經微分方程論文中用的 SciPy 的積分器。）
+由於它們最接近於論文中所用的 SciPy 的積分器。）
 
 <!-- (Here we once again use the CVODE C++ solvers from SUNDIALS since they are a close
 match to the SciPy integrators used in the neural ODE paper.) -->
