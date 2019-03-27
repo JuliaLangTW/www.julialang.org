@@ -4,7 +4,7 @@ title:  DiffEqFlux.jl – 一個 Julia 的神經微分方程套件
 author: Chris Rackauckas, Mike Innes, Yingbo Ma, Jesse Bettencourt, Lyndon White, Vaibhav Dixit, 譯者：杜岳華（Yueh-Hua Tu）Dboy Liao (Yin-Chen Liao)
 ---
 
-在這篇部落格文章中，我們將會展示在 Julia 中使用微分方程解法（DiffEq）在神經網路上有多麼簡單、有效而且穩定。
+在這篇部落格文章中，我們將會展示在 Julia 中使用微分方程解算器（DiffEq solver）在神經網路上有多麼簡單、有效而且穩定。
 
 <!-- In this blog post we will show you how to easily, efficiently, and
 robustly use differential equation (DiffEq) solvers with neural networks in Julia. -->
@@ -91,42 +91,41 @@ Please join the [Julia Slack](https://slackinvite.julialang.org/) and the #jsoc 
 
 <!-- ## What do differential equations have to do with machine learning? -->
 
-對於不熟悉相關領域的人來說，想必第一個問題自然是：為什麼微分方程在神經網絡這個脈絡下，會有舉足輕重的關聯？簡而言之，微分方程可以藉由數學模型來敘述、編碼 (encoding) 先驗的結構化假設，來表示任何一種非線性系統。
+對於不熟悉相關領域的人來說，想必第一個問題自然是：為什麼微分方程在神經網絡這個脈絡下，會有舉足輕重的關聯？
+簡而言之，微分方程可以藉由數學模型來敘述、編碼 (encoding) 先驗的結構化假設，來表示任何一種非線性系統。
 
-讓我們稍稍解釋一下最後這句話在說什麼。一般來說，主要有三種方法來定義一個非線性轉換: 直接數學建模、機器學習與微分方程式。直接數學建模可以直接寫下輸入與輸出間的非線性轉換，但只有在輸入與輸出間的函數關係形式為已知時可用，然而大部分的狀況，兩者間的確切關係並不是事先知道的。所以大多數的問題是，你如何在輸入輸出間的關係未知的情況下，來對其做非線性數學建模？
-
-其中一種解決方法是使用機器學習演算法。典型的機器學習處理的問題裡，會給定一些輸入資料 [[x]] 和你想預測的輸出 [[y]]。而由給定 [[x]] 產生預測值 [[y]] 就是一個機器學習模型 (以下稱作 [[ML]])。在訓練階段，我們想辦法調整 [[ML]] 的參數讓它得以產生更正確的預測值。接下來，我們即可用 [[ML]] 進行推論 (即針對事前沒見過的 `x` 值去產生相對應的 [[y]])。同時，這也不過是一個非線性轉換而已 [[y=ML(x)]]。但是 [[ML]] 有趣的地方在於他本身數學模型的形式可以非常基本但卻可以調整適應至各種資料。舉例來說，一個簡單的以 sigmoid 函數作為激活函數的神經網絡模型 (以設計矩陣的形式，design matrix)，本質上來說就是簡單的矩陣運算複合帶入 sigmoid 函數裡。舉例來說，[[ML(x)=σ(W3⋅σ(W2⋅σ(W1⋅x)))]] 即是一個簡單的三層神經網絡模型，其中 [[W=(W1, W2, W3)]] 為可以被調整的模型參數。接下來即是選擇適當的 [[W]] 使得 [[ML(x)=y]] 可以合理的逼近收集到的資料。相關機器學習理論已經保證了這是一個估計非線性系統的一個好方法。舉例來說，Universal Approximation Theorem 說明了只要有足夠的層數或參數 (即夠大的 [[W]] 矩陣)，[[ML(x)]] 可以逼近任何非線性函數 (在常見的限制條件下)。
-
-這太好了，它總是有解！然而有幾個必須注意的地方，主要在於這模型需直接從資料裡學習非線性轉換。但在大多數的狀況，我們並不知曉有興趣的非線性方程整體，但我們卻可以知道它的*結構細節*。舉例來說，這個非線性轉換可以是關於森林裡的兔子的數量，而我們可能知道兔子群體的出生率正比於其數量。因此，與其從無到有去學習兔子群體數量的非線性模型，我們或許希望能夠套用這個數量與出生率的已知*先驗（a priori）*關係，和一組參數來描寫它。對於我們的兔子群體模型來說，可以寫成
-
-$[[\text{rabbits(明日)} = \text{Model}(\text{rabbits(今日)}).]]
-
-在這個例子裡，我們得知群體出生率正比於群體數量這個先驗知識。而如果用數學的方式去描述這個關於兔子群體大小結構的假設，即是微分方程。在這裡，我們想描寫的事準確地說，是在給定的某一時間點的兔子群體的出生率將會隨著兔子群體大小的增加而增加。簡單地寫的話，可以寫成以下的式子
-
-$[[\text{rabbits}'(t) = \alpha\cdot \text{rabbits}(t)]]
-
-其中，[[α]] 是可以學習調整的參數。如果你還記得以前學過的微積分，這個方程的解即為成長率為 `α` 的指數成長函數:
-
-[[\text{rabbits}(t_\text{start})e^{(\alpha t)}]]
-
-其中 [[rabbits(start)]] 為初始的兔子數量。但值得注意的是，其實我們並不需要知道這個微分方程的解才能驗證以下想法：我們只需描寫模型的結構條件，數學即可幫助我們求解出這個解應該有的樣子。基於這個理由，使得微分方程成為許多科學領域的工具。例如物理學的基本定律明述了電荷的作用力 ([馬克士威方程組](https://en.wikipedia.org/wiki/Maxwell%27s_equations))。這些方程組對於物體如何改變是重要的方程組，因此這些方程組的解即是物體*將會*在哪裡的預測結果。
-
-<!-- ## What do differential equations have to do with machine learning?
-
-The first question someone not familiar with the field might ask is, why are
+<!-- The first question someone not familiar with the field might ask is, why are
 differential equations important in this context? The simple answer is that a
 differential equation is a way to specify an arbitrary nonlinear transform by
-mathematically encoding prior structural assumptions.
+mathematically encoding prior structural assumptions. -->
 
-Let's unpack that statement a bit. There are three
+讓我們稍稍解釋一下最後這句話在說什麼。一般來說，主要有三種方法來定義一個非線性轉換: 直接數學建模、機器學習與微分方程式。
+直接數學建模可以直接寫下輸入與輸出間的非線性轉換，但只有在輸入與輸出間的函數關係形式為已知時可用，
+然而大部分的狀況，兩者間的確切關係並不是事先知道的。
+所以大多數的問題是，你如何在輸入輸出間的關係未知的情況下，來對其做非線性數學建模？
+
+<!-- Let's unpack that statement a bit. There are three
 common ways to define a nonlinear transform: direct
 modeling, machine learning, and differential equations.
 Directly writing down the nonlinear function only works
 if you know the exact functional form that relates the input to the output.
 However, in many cases, such exact relations are not known *a priori*.
-So how do you do nonlinear modeling if you don't know the nonlinearity?
+So how do you do nonlinear modeling if you don't know the nonlinearity? -->
 
-One way to address this is to use machine
+其中一種解決方法是使用機器學習演算法。典型的機器學習處理的問題裡，會給定一些輸入資料 [[x]] 和你想預測的輸出 [[y]]。
+而由給定 [[x]] 產生預測值 [[y]] 就是一個機器學習模型 (以下稱作 [[ML]])。
+在訓練階段，我們想辦法調整 [[ML]] 的參數讓它得以產生更正確的預測值。
+接下來，我們即可用 [[ML]] 進行推論 (即針對事前沒見過的 `x` 值去產生相對應的 [[y]])。
+同時，這也不過是一個非線性轉換而已 [[y=ML(x)]]。但是 [[ML]] 有趣的地方在於他本身數學模型的形式可以
+非常基本但卻可以調整適應至各種資料。舉例來說，一個簡單的以 sigmoid 函數作為激活函數的神經網絡模型（以設計矩陣的形式，design matrix），
+本質上來說就是簡單的矩陣運算複合帶入 sigmoid 函數裡。舉例來說，[[ML(x)=σ(W3⋅σ(W2⋅σ(W1⋅x)))]] 
+即是一個簡單的三層神經網絡模型，其中 [[W=(W1, W2, W3)]] 為可以被調整的模型參數。
+接下來即是選擇適當的 [[W]] 使得 [[ML(x)=y]] 可以合理的逼近收集到的資料。
+相關機器學習理論已經保證了這是一個估計非線性系統的一個好方法。
+舉例來說，Universal Approximation Theorem 說明了只要有足夠的層數或參數 (即夠大的 [[W]] 矩陣)，
+[[ML(x)]] 可以逼近任何非線性函數 (在常見的限制條件下)。
+
+<!-- One way to address this is to use machine
 learning. In a typical machine learning problem, you are given some input [[x]] and
 you want to predict an output [[y]]. This generation of a prediction [[y]] from [[x]]
 is a machine learning model (let's call it [[ML]]).  During training, we attempt to
@@ -142,29 +141,50 @@ You then choose [[W]] such that [[ML(x)=y]] reasonably fits the function you wan
 The theory and practice of machine learning confirms that this is a good way to learn nonlinearities.
 For example, the Universal Approximation Theorem states that, for
 enough layers or enough parameters (i.e. sufficiently large [[W_{i}]] matrices), [[ML(x)]]
-can approximate any nonlinear function sufficiently close (subject to common constraints).
+can approximate any nonlinear function sufficiently close (subject to common constraints). -->
 
-So great, this always works! But it has some caveats, the main being
+這太好了，它總是有解！然而有幾個必須注意的地方，主要在於這模型需直接從資料裡學習非線性轉換。
+但在大多數的狀況，我們並不知曉有興趣的非線性方程整體，但我們卻可以知道它的*結構細節*。
+舉例來說，這個非線性轉換可以是關於森林裡的兔子的數量，而我們可能知道兔子群體的出生率正比於其數量。
+因此，與其從無到有去學習兔子群體數量的非線性模型，我們或許希望能夠套用這個數量與出生率的
+已知*先驗（a priori）*關係，和一組參數來描寫它。對於我們的兔子群體模型來說，可以寫成
+
+<!-- So great, this always works! But it has some caveats, the main being
 that it has to learn everything about the nonlinear transform directly from the data.
 In many cases we do not know the full nonlinear equation, but we may know details about its structure.
 For example, the nonlinear function could be the population of rabbits in the forest,
 and we might know that their rate of births is dependent on the current population.
 Thus instead of starting from nothing, we may want to use this known _a priori_ relation and a set of parameters that defines it.
-For the rabbits, let's say that we want to learn
+For the rabbits, let's say that we want to learn -->
 
-$[[\text{rabbits tomorrow} = \text{Model}(\text{rabbits today}).]]
+$[[\text{rabbits(明日)} = \text{Model}(\text{rabbits(今日)}).]]
 
-In this case, we have prior knowledge of the rate of births being dependent on
+在這個例子裡，我們得知群體出生率正比於群體數量這個先驗知識。
+而如果用數學的方式去描述這個關於兔子群體大小結構的假設，即是微分方程。
+在這裡，我們想描寫的事準確地說，是在給定的某一時間點的兔子群體的出生率將會隨著兔子群體大小的增加而增加。
+簡單地寫的話，可以寫成以下的式子
+
+<!-- In this case, we have prior knowledge of the rate of births being dependent on
 the current population. The way to mathematically state this
 structural assumption is via a differential equation. Here, what we are saying
 is that the birth rate of the rabbit population at a given time point increases
-when we have more rabbits. The simplest way of encoding that is
+when we have more rabbits. The simplest way of encoding that is -->
 
 $[[\text{rabbits}'(t) = \alpha\cdot \text{rabbits}(t)]]
 
-where [[\alpha]] is some learnable constant. If you know your calculus, the solution
-here is exponential growth from the starting point with a growth rate [[\alpha]]:
-[[\text{rabbits}(t_\text{start})e^{(\alpha t)}]]. But notice that we didn't need to know the
+其中，[[α]] 是可以學習調整的參數。如果你還記得以前學過的微積分，這個方程的解即為成長率為 `α` 的指數成長函數:
+
+<!-- where [[\alpha]] is some learnable constant. If you know your calculus, the solution
+here is exponential growth from the starting point with a growth rate [[\alpha]]: -->
+
+[[\text{rabbits}(t_\text{start})e^{(\alpha t)}]]
+
+其中 [[rabbits(start)]] 為初始的兔子數量。但值得注意的是，其實我們並不需要知道這個微分方程的解
+才能驗證以下想法：我們只需描寫模型的結構條件，數學即可幫助我們求解出這個解應該有的樣子。
+基於這個理由，使得微分方程成為許多科學領域的工具。例如物理學的基本定律明述了電荷的作用力 ([馬克士威方程組](https://en.wikipedia.org/wiki/Maxwell%27s_equations))。
+這些方程組對於物體如何改變是重要的方程組，因此這些方程組的解即是物體*將會*在哪裡的預測結果。
+
+<!-- But notice that we didn't need to know the
 solution to the differential equation to validate the idea: we encoded the
 structure of the model and mathematics itself then outputs what the solution
 should be. Because of this, differential equations have been the tool of choice
@@ -384,7 +404,7 @@ scatter!(t,A)
 
 最基礎的微分方程層是 `diffeq_rd`，它會做相同的事，只有一點語法上的改變。
 `diffeq_rd` 會接受被積函數的參數 `p`，並且把它放進由 `prob` 定義好的微分方程中，
-然後根據挑選好的程式參數（解法、容忍度...等等）解方程式。
+然後根據挑選好的程式參數（解算器、容忍度...等等）解方程式。
 範例如下：
 
 <!-- The most basic differential equation layer is `diffeq_rd`, which does the same
@@ -557,7 +577,7 @@ plot(sol,xscale=:log10,tspan=(0.1,1e11))
 
 ![ROBER Plot](https://user-images.githubusercontent.com/1814174/51388944-eb18e680-1af8-11e9-874f-09478759596e.png)
 
-這不過是個積分法一些微小細節的範例：藉由 PI-適應性控制器和步距預測隱式解法等，都有著複雜微小的細節並需要長時間的開發與測試，才能變成有效率並穩定的求解器。而不同的問題也會需要不同的方法：如為了在許多[物理問題上得到夠好的解並避免偏移](https://scicomp.stackexchange.com/questions/29149/what-does-symplectic-mean-in-reference-to-numerical-integrators-and-does-scip/29154#29154)，[Symplectic 積分器]((http://docs.juliadiffeq.org/latest/solvers/dynamical_solve.html#Symplectic-Integrators-1))是必須的；另外像是 [IMEX 積分器](ttp://docs.juliadiffeq.org/latest/solvers/split_ode_solve.html#Implicit-Explicit-(IMEX)-ODE-1) 在求解偏微分方程上也是不可或缺的。由此可見建立一個具產品水準的求解器是有迫切需要，但目前相對稀少的。
+這不過是個積分法一些微小細節的範例：藉由 PI-適應性控制器和步距預測隱式解算器等，都有著複雜微小的細節並需要長時間的開發與測試，才能變成有效率並穩定的求解器。而不同的問題也會需要不同的方法：如為了在許多[物理問題上得到夠好的解並避免偏移](https://scicomp.stackexchange.com/questions/29149/what-does-symplectic-mean-in-reference-to-numerical-integrators-and-does-scip/29154#29154)，[Symplectic 積分器]((http://docs.juliadiffeq.org/latest/solvers/dynamical_solve.html#Symplectic-Integrators-1))是必須的；另外像是 [IMEX 積分器](ttp://docs.juliadiffeq.org/latest/solvers/split_ode_solve.html#Implicit-Explicit-(IMEX)-ODE-1) 在求解偏微分方程上也是不可或缺的。由此可見建立一個具產品水準的求解器是有迫切需要，但目前相對稀少的。
 
 在科學運算這個領域，與其另外為了機器學習另外設計積分器工具庫，在 Julia 裡兩者並無不同，也就是說你可以直接利用這些現成的積分器。
 
@@ -666,7 +686,7 @@ Flux.train!(loss_fd_sde, params, data, opt, cb = cb)
 
 [This code can be found in the model-zoo](https://github.com/FluxML/model-zoo/blob/da4156b4a9fb0d5907dcb6e21d0e78c72b6122e0/other/diffeq/sde.jl)
 
-我們可以繼續下去。譬如也些微分方程式是呈[分片段常數函數 (piecewise constant)](http://docs.juliadiffeq.org/latest/tutorials/discrete_stochastic_example.html)被使用在生物模擬上，抑或是被應用於財務模型中的[跳耀擴散方程式 (jump diffusion)](http://docs.juliadiffeq.org/latest/tutorials/jump_diffusion.html)。而上述這些方程式解法器，都可以透過 FluxDiffEq.jl 很好地整合進 Flux 神經網路的架構裡，且 FluxDiffEq.jl 大約只使用了約 100 行左右的程式碼便完成了這些實作。
+我們可以繼續下去。譬如也些微分方程式是呈[分片段常數函數 (piecewise constant)](http://docs.juliadiffeq.org/latest/tutorials/discrete_stochastic_example.html)被使用在生物模擬上，抑或是被應用於財務模型中的[跳耀擴散方程式 (jump diffusion)](http://docs.juliadiffeq.org/latest/tutorials/jump_diffusion.html)。而上述這些方程式解算器，都可以透過 FluxDiffEq.jl 很好地整合進 Flux 神經網路的架構裡，且 FluxDiffEq.jl 大約只使用了約 100 行左右的程式碼便完成了這些實作。
 <!-- And we can keep going. There are differential equations
 [which are piecewise constant](http://docs.juliadiffeq.org/latest/tutorials/discrete_stochastic_example.html)
 used in biological simulations, or
@@ -674,42 +694,50 @@ used in biological simulations, or
 and the solvers map right over to the Flux neural network frame work through FluxDiffEq.jl
 FluxDiffEq.jl uses only around ~100 lines of code to pull this all off. -->
 
-## Implementing the Neural ODE layer in Julia
+## 用 Julia 實作一個常微分方程神經網路層
+
+現在我們回頭用 Julia 實作一個常微分方程神經網路層吧！牢記這不過就是一個把常微分方程中的導數函數替換成一個神經網路層。為此，我們先來定義一個神經網路做為導數。在 Flux 中，我們可以以下的程式碼實作一個多層感知器，帶有一層隱藏層和 `tanh` 作為激發函數：
+<!-- ## Implementing the Neural ODE layer in Julia
 
 Let's go all the way back for a second and now implement the neural ODE layer
 in Julia. Remember that this is simply an ODE where the derivative function
 is defined by a neural network itself. To do this, let's first define the
 neural net for the derivative. In Flux, we can define a multilayer perceptron
-with 1 hidden layer and a `tanh` activation function like:
+with 1 hidden layer and a `tanh` activation function like: -->
 
 ```julia
 dudt = Chain(Dense(2,50,tanh),Dense(50,2))
 ```
 
-To define a `neural_ode` layer, we then just need to give
-it a timespan and use the `neural_ode` function:
+為了定義一個 `neural_ode`，我們接著定義一個時間跨度並使用 `neural_ode` 函數如下：
+<!-- To define a `neural_ode` layer, we then just need to give
+it a timespan and use the `neural_ode` function: -->
 
 ```julia
 tspan = (0.0f0,25.0f0)
 x->neural_ode(dudt,x,tspan,Tsit5(),saveat=0.1)
 ```
 
-As a side note, to run this on the GPU, it is sufficient to make the initial
+順帶一提，如果想要在 GPU 上運算這個神經網路，只需讓起始條件與神經網路架設於 GPU 上即可。在整合 GPU 的階段，這會使得微分方程解算器內部運算直接在 GPU 上執行，無需額外的資料傳輸。這寫起來會像是[^gpu]：
+<!-- As a side note, to run this on the GPU, it is sufficient to make the initial
 condition and neural network be on the GPU. This will cause the entire ODE
 solver's internal operations to take place on the GPU without extra data
-transfers in the integration scheme. This looks like[^gpu]:
+transfers in the integration scheme. This looks like[^gpu]: -->
 
 ```julia
 x->neural_ode(gpu(dudt),gpu(x),tspan,BS3(),saveat=0.1)
 ```
 
-[^gpu]: We have changed the solver from Tsit5 to BS3, as Tsit5 is [currently not GPU compatible](https://github.com/JuliaDiffEq/OrdinaryDiffEq.jl/issues/106).
+[^gpu]: 在這裡，由於Tsit5[無法在 GPU 上執行](https://github.com/JuliaDiffEq/OrdinaryDiffEq.jl/issues/106)，我們把解算器從 Tsit5 改成 BS3。
+<!-- [^gpu]: We have changed the solver from Tsit5 to BS3, as Tsit5 is [currently not GPU compatible](https://github.com/JuliaDiffEq/OrdinaryDiffEq.jl/issues/106). -->
 
-## Understanding the Neural ODE layer behavior by example
+## 用範例理解常微分神經網路的行為
+<!-- ## Understanding the Neural ODE layer behavior by example -->
 
-Now let's use the neural ODE layer in an example to find out what it means.
+現在，讓我們用一個例子來看看常微分神經網路層到底是什麼樣子。首先，讓我們用一個常微分方程來產生一個均勻時間點的時間序列。在這裡我們會使用論文中的例子。
+<!-- Now let's use the neural ODE layer in an example to find out what it means.
 First, let's generate a time series of an ODE at evenly spaced time points.
-We'll use the test equation from the Neural ODE paper.
+We'll use the test equation from the Neural ODE paper. -->
 
 ```julia
 u0 = Float32[2.; 0.]
@@ -725,10 +753,11 @@ prob = ODEProblem(trueODEfunc,u0,tspan)
 ode_data = Array(solve(prob,Tsit5(),saveat=t))
 ```
 
-Now let's pit a neural ODE against this data. To do so, we
+現在，我們可以用一個常微分神經網路去配適這個資料。為此，我們會定義一個如同上文提及的單層神經網絡（但在這裡我們降低了誤差容忍值來讓模型近似得更接近資料，得以產生較好的動畫）：
+<!-- Now let's pit a neural ODE against this data. To do so, we
 will define a single layer neural network which just has the same neural ODE
 as before (but lower the tolerances to help it converge closer, makes for a
-better animation!):
+better animation!): -->
 
 ```julia
 dudt = Chain(x -> x.^3,
@@ -738,24 +767,26 @@ ps = Flux.params(dudt)
 n_ode = x->neural_ode(dudt,x,tspan,Tsit5(),saveat=t,reltol=1e-7,abstol=1e-9)
 ```
 
-Notice that the `neural_ode` has the same timespan and `saveat` as the solution
+注意到，`neural_ode` 中使用和產生資料的常微分方程解相同的時間跨度與 `saveat`，所以它會在每個時間點針對神經網路預測的動態系統狀態來產生一個預測值。讓我們來看看最初這個神經網路會給出怎樣的時間序列。由於這個常微分方程有兩個應變數，為了簡化畫圖的作業，我們只畫出第一個應變數。程式碼如下：
+<!-- Notice that the `neural_ode` has the same timespan and `saveat` as the solution
 that generated the data. This means that given an `x` (and initial value), it
 will generate a guess for what it things the time series will be where the
 dynamics (the structure) is predicted by the internal neural network. Let's see
 what time series it gives before we train the network. Since the ODE
 has two-dependent variables, we will simplify the plot by only showing the first.
-The code for the plot is:
+The code for the plot is: -->
 
 ```julia
-pred = n_ode(u0) # Get the prediction using the correct initial condition
+pred = n_ode(u0) # 使用真實的初始值來產生預測值
 scatter(t,ode_data[1,:],label="data")
 scatter!(t,Flux.data(pred[1,:]),label="prediction")
 ```
 
 ![Neural ODE Start](https://user-images.githubusercontent.com/1814174/51585822-d9449400-1ea8-11e9-8665-956a16e95207.png)
 
-But now let's train our neural network. To do so, define a prediction function like before, and then
-define a loss between our prediction and data:
+現在讓我們來訓練我們的神經網路吧！為此，這裡如同前文一般定義了一個預測函數、一個 loss 函數來評估我們的預測值與資料：
+<!-- But now let's train our neural network. To do so, define a prediction function like before, and then
+define a loss between our prediction and data: -->
 
 ```julia
 function predict_n_ode()
@@ -764,22 +795,23 @@ end
 loss_n_ode() = sum(abs2,ode_data .- predict_n_ode())
 ```
 
-And now we train the neural network and watch as it learns how to
-predict our time series:
+接者，我們訓練神經網路，並觀察它如何學習預測我們的時間序列的過程：
+<!-- And now we train the neural network and watch as it learns how to
+predict our time series: -->
 
 ```julia
 data = Iterators.repeated((), 1000)
 opt = ADAM(0.1)
-cb = function () #callback function to observe training
+cb = function () # 觀察資料用的 callback 函數
   display(loss_n_ode())
-  # plot current prediction against data
+  # 畫出當下預測和資料
   cur_pred = Flux.data(predict_n_ode())
   pl = scatter(t,ode_data[1,:],label="data")
   scatter!(pl,t,cur_pred[1,:],label="prediction")
   display(plot(pl))
 end
 
-# Display the ODE with the initial parameter values.
+# 呈現初始參數下的常微分方程
 cb()
 
 Flux.train!(loss_n_ode, ps, data, opt, cb = cb)
@@ -787,23 +819,25 @@ Flux.train!(loss_n_ode, ps, data, opt, cb = cb)
 
 ![Neural ODE Train](https://user-images.githubusercontent.com/1814174/51585825-dc3f8480-1ea8-11e9-8498-18cf55fba3e6.gif)
 
-[This code can be found in the model-zoo](https://github.com/FluxML/model-zoo/blob/da4156b4a9fb0d5907dcb6e21d0e78c72b6122e0/other/diffeq/neural_ode.jl)
+[可以在 model-zoo 找到完整程式碼](https://github.com/FluxML/model-zoo/blob/da4156b4a9fb0d5907dcb6e21d0e78c72b6122e0/other/diffeq/neural_ode.jl)
 
-Notice that we are not learning a solution to the ODE.
+注意到，我們並不是針對 ODE 的解去學習。反而，我們是在學習一個可以產生這組解的小小 ODE 系統。也就是說，這個在 `neural_ode` 中的神經網路學到的是這個函數:
+<!-- Notice that we are not learning a solution to the ODE.
 Instead, what we are learning is the tiny ODE system from which the ODE
 solution is generated. I.e., the neural network inside the neural_ode
-layer learns this function:
-
-Thus **it learned a compact representation of how the
+layer learns this function: -->
+**它學到的是這組時間序列如何運作的一個完整的表示法**，並且它可以輕易的使用不同的初始條件對接下來的值進行外插。除此之外，這是個可以學習這樣的表示法非常彈性的架構。舉例來說，如果你的資料有的不是均勻間隔的時間點 `t`，只需在你的 ODE 解算器中讓 `saveat=t`，讓解算器去處理這個問題即可。
+<!-- Thus **it learned a compact representation of how the
 time series works**, and it can easily extrapolate to what would happen with
 different starting conditions. Not only that, it's a very flexible
 method for learning such representations. For example, if your data is
 unevenly spaced at time points `t`, just pass in `saveat=t` and the
-ODE solver takes care of it.
+ODE solver takes care of it. -->
 
-As you could probably guess by now, the DiffEqFlux.jl has all kinds of
+你可能現在已經猜到了，`DiffEqFlux.jl` 中還有個其他所有各式各樣額外相關的好東西像是神經隨機微分方程 (`neural_msde`)，讓你去在你的應用中去探索發現。
+<!-- As you could probably guess by now, the DiffEqFlux.jl has all kinds of
 extra related goodies like Neural SDEs (`neural_msde`) for you to explore in your
-applications.
+applications. -->
 
 ## 核心的技術問題：微分方程求解器的反向傳遞
 <!-- ## The core technical challenge: backpropagation through differential equation solvers -->
@@ -843,7 +877,7 @@ in 2005!). [DifferentialEquations.jl has sensitivity analysis implemented too](h
 伴隨著記憶體用量的增加，得以加速。在 Neural ODE 一文中所使用的方法，則嘗試要以反向的伴隨法來替代對前向方法的依賴。
 然而衍生的問題則是，這個方法隱含地假設了微分方程積分器必須是[可逆的](https://www.physics.drexel.edu/~valliere/PHYS305/Diff_Eq_Integrators/time_reversal/)。
 令人失望的是，目前對於一階微分方程尚不存在可逆的適應型積分器，所以沒有這樣的微分方程求解器可以用。
-舉例而言，作為一個快速的驗證，在論文中針對這樣的微分方程上使用反向解法 Adams，
+舉例而言，作為一個快速的驗證，在論文中針對這樣的微分方程上使用反向解算器 Adams，
 即便設定了 1e-12 的容忍度，還是在最後一個點上就會產生 >1700% 的誤差：
 
 <!-- The efficiency problem with adjoint sensitivity analysis methods is that they require
